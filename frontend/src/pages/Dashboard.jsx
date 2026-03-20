@@ -23,12 +23,13 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      const [prodRes, supRes, quoteRes, quotes] = await Promise.all([
+      const [prodRes, supRes, quoteRes, quotesViewRes] = await Promise.all([
         supabase.from('products').select('*', { count: 'exact', head: true }),
         supabase.from('suppliers').select('*', { count: 'exact', head: true }),
         supabase.from('quotations').select('*', { count: 'exact', head: true }),
-        fetchAllRows('quotations_view', '*', 'created_at', { ascending: false })
+        supabase.from('quotations_view').select('*').order('created_at', { ascending: false }).limit(500)
       ]);
+      const quotes = quotesViewRes.data;
 
       // Orders em separado para não derrubar tudo se a tabela não existir
       let fetchedOrders = [];
@@ -112,7 +113,7 @@ export default function Dashboard() {
       {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
-          icon={TrendingUp} title="Economia Gerada"
+          icon={TrendingUp} title="Economia (Recente)"
           value={`R$ ${data.total_savings.toFixed(2)}`} color="text-emerald-500" bg="bg-emerald-100" />
         <MetricCard
           icon={Calculator} title="Cotações Ativas"
