@@ -13,7 +13,9 @@ export default function Dashboard() {
     recent_deals: []
   });
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Carrega a "casca" do dashboard imediatamente
+  const [fetchingMetrics, setFetchingMetrics] = useState(true);
+  const [fetchingDetails, setFetchingDetails] = useState(true);
 
   useEffect(() => {
     fetchDashboardData();
@@ -21,9 +23,9 @@ export default function Dashboard() {
 
   async function fetchDashboardData() {
     try {
-      setLoading(true);
+      setFetchingMetrics(true);
 
-      // 1. Métricas rápidas primeiro (Apenas contagem)
+      // 1. Contagens rápidas (head: true é instantâneo no Postgres)
       const [prodRes, supRes, quoteRes] = await Promise.all([
         supabase.from('products').select('id', { count: 'exact', head: true }),
         supabase.from('suppliers').select('id', { count: 'exact', head: true }),
@@ -36,22 +38,24 @@ export default function Dashboard() {
         total_suppliers: supRes.count || 0,
         total_quotes: quoteRes.count || 0
       }));
-      setLoading(false); // Já libera a tela para o usuário ver os cards!
+      setFetchingMetrics(false);
 
-      // 2. Busca dados mais pesados em segundo plano
+      // 2. Busca o restante em paralelo sem travar a UI
       fetchRemainingData();
 
     } catch (error) {
       console.error(error);
-      setLoading(false);
+      setFetchingMetrics(false);
     }
   }
 
   async function fetchRemainingData() {
     try {
+       setFetchingDetails(true);
        const [quotesViewRes, ordersRes] = await Promise.all([
-         supabase.from('quotations_view').select('*').order('created_at', { ascending: false }).limit(300),
-         supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(20)
+         // Limitamos a 200 para o Dashboard ser ultra rápido
+         supabase.from('quotations_view').select('*').order('created_at', { ascending: false }).limit(200),
+         supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(10)
        ]);
 
        const quotes = quotesViewRes.data || [];
@@ -94,7 +98,11 @@ export default function Dashboard() {
          recent_deals: Object.values(recentDealsMap).sort((a, b) => b.savings - a.savings).slice(0, 5)
        }));
        setOrders(fetchedOrders);
-    } catch(e) { console.warn("Lento ao carregar detalhes:", e); }
+       setFetchingDetails(false);
+    } catch(e) { 
+      console.warn(e); 
+      setFetchingDetails(false);
+    }
   }
 
   // Preparar dados do gráfico
@@ -107,7 +115,8 @@ export default function Dashboard() {
       itens: o.items_count
     }));
 
-  if (loading) return <div className="p-8 text-center text-slate-500">Carregando painel principal...</div>;
+  // Removido o block de loading total para a tela abrir imediatamente
+  // if (loading) return <div className="p-8 text-center text-slate-500">Carregando painel principal...</div>;
 
   return (
     <div className="space-y-6">
@@ -115,16 +124,16 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           icon={TrendingUp} title="Economia (Recente)"
-          value={`R$ ${data.total_savings.toFixed(2)}`} color="text-emerald-500" bg="bg-emerald-100" />
+          value={fetchingDetails ? "calculando..." : `R$ ${data.total_savings.toFixed(2)}`} color="text-emerald-500" bg="bg-emerald-100" />
         <MetricCard
           icon={Calculator} title="Cotações Ativas"
-          value={data.total_quotes} color="text-blue-500" bg="bg-blue-100" />
+          value={fetchingMetrics ? "..." : data.total_quotes} color="text-blue-500" bg="bg-blue-100" />
         <MetricCard
           icon={PackageSearch} title="Produtos Cadastrados"
-          value={data.total_products} color="text-purple-500" bg="bg-purple-100" />
+          value={fetchingMetrics ? "..." : data.total_products} color="text-purple-500" bg="bg-purple-100" />
         <MetricCard
           icon={Truck} title="Fornecedores"
-          value={data.total_suppliers} color="text-amber-500" bg="bg-amber-100" />
+          value={fetchingMetrics ? "..." : data.total_suppliers} color="text-amber-500" bg="bg-amber-100" />
       </div>
 
       {/* Gráfico de Compras */}
