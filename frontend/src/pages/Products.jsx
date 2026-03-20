@@ -395,6 +395,7 @@ export default function Products() {
 
       {/* Tabela de Produtos com preços por fornecedor */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-4 bg-slate-50/50">
           <div className="relative flex-1 max-w-sm">
             <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="Pesquisar por nome ou EAN..."
@@ -427,7 +428,10 @@ export default function Products() {
               <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 text-xs uppercase font-semibold">
                 <th className="px-2 py-3 w-10 text-center">
                   <input type="checkbox" checked={products.length > 0 && selectedIds.size === products.length}
-                    onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/50 cursor-pointer" />
+                    onChange={() => {
+                      if (selectedIds.size === products.length) setSelectedIds(new Set());
+                      else setSelectedIds(new Set(products.map(p => p.id)));
+                    }} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/50 cursor-pointer" />
                 </th>
                 <th className="px-4 py-3 sticky left-0 bg-slate-50 z-10">Produto</th>
                 {suppliers.map(s => (
