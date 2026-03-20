@@ -14,6 +14,12 @@ export default function Products() {
   const [editingId, setEditingId] = useState(null);
   const [searchFilter, setSearchFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
+  
+  // Pagination
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(50);
+  const [totalProducts, setTotalProducts] = useState(0);
+  
   const navigate = useNavigate();
   
   // Import
@@ -34,26 +40,55 @@ export default function Products() {
   const [avgPrice, setAvgPrice] = useState("");
 
   useEffect(() => {
-    fetchAll();
-  }, []);
+    fetchMainData();
+  }, [page, searchFilter]);
 
-  async function fetchAll() {
+  async function fetchMainData() {
     try {
       setLoading(true);
-      const [prodData, supData, quotData] = await Promise.all([
-        fetchAllRows("products", "*", "name"),
-        fetchAllRows("suppliers", "id, name", "name"),
-        fetchAllRows("quotations", "id, product_id, supplier_id, price")
-      ]);
+      
+      // 1. Fetch products count and products for current page
+      let query = supabase.from("products").select("*", { count: "exact" });
+      
+      if (searchFilter) {
+        query = query.or(`name.ilike.%${searchFilter}%,ean.ilike.%${searchFilter}%`);
+      }
+      
+      const { data: prodData, count, error: prodErr } = await query
+        .order("name")
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+        
+      if (prodErr) throw prodErr;
+      
       setProducts(prodData || []);
+      setTotalProducts(count || 0);
+
+      // 2. Fetch suppliers (small list, can keep all)
+      const { data: supData } = await supabase.from("suppliers").select("id, name").order("name");
       setSuppliers(supData || []);
-      setQuotations(quotData || []);
+
+      // 3. Fetch ONLY quotations for THESE products to be fast
+      if (prodData && prodData.length > 0) {
+        const prodIds = prodData.map(p => p.id);
+        const { data: quotData } = await supabase.from("quotations")
+          .select("id, product_id, supplier_id, price")
+          .in("product_id", prodIds);
+        setQuotations(quotData || []);
+      } else {
+        setQuotations([]);
+      }
+
     } catch (error) {
       console.error("Erro ao buscar dados:", error.message);
     } finally {
       setLoading(false);
     }
   }
+
+  // Remove old fetchAll
+  /*
+  async function fetchAll() { ... }
+  */
 
   // Mapa rápido de preços: chave "productId-supplierId" -> { id, price }
   const priceMap = useMemo(() => {
@@ -229,22 +264,9 @@ export default function Products() {
     finally { setImporting(false); }
   }
 
-  // Filtro de busca (memoizado)
-  const filteredProducts = useMemo(() => {
-    if (!searchFilter) return products;
-    const s = searchFilter.toLowerCase();
-    return products.filter(p =>
-      p.name.toLowerCase().includes(s) || (p.ean && p.ean.includes(s)) || (p.laboratory && p.laboratory.toLowerCase().includes(s))
-    );
-  }, [products, searchFilter]);
-
-  // Paginação
-  const PAGE_SIZE = 50;
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const visibleProducts = useMemo(() => filteredProducts.slice(0, visibleCount), [filteredProducts, visibleCount]);
-
+  // Filtro de busca (agora pelo servidor em fetchMainData)
   // Reset paginação quando filtro muda
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [searchFilter]);
+  useEffect(() => { setPage(0); }, [searchFilter]);
 
   // Melhor preço por produto (pré-calculado, não recalcula por linha)
   const bestPriceMap = useMemo(() => {
@@ -373,14 +395,30 @@ export default function Products() {
 
       {/* Tabela de Produtos com preços por fornecedor */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-4 bg-slate-50/50">
           <div className="relative flex-1 max-w-sm">
             <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Pesquisar por nome, EAN ou laboratório..."
+            <input type="text" placeholder="Pesquisar por nome ou EAN..."
               value={searchFilter} onChange={e => setSearchFilter(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" />
           </div>
-          <span className="text-xs text-slate-400 bg-slate-200/70 px-2 py-1 rounded-full shrink-0">{filteredProducts.length} produtos</span>
+          <div className="flex items-center gap-4">
+             <span className="text-xs text-slate-500 font-medium">{totalProducts} produtos encontrados</span>
+             <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1">
+                <button 
+                  disabled={page === 0}
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  className="px-3 py-1 text-xs font-bold transition-colors hover:bg-slate-100 disabled:opacity-30">
+                  Anterior
+                </button>
+                <span className="px-3 py-1 text-xs text-slate-400 border-x border-slate-100">{page + 1}</span>
+                <button 
+                  disabled={(page + 1) * pageSize >= totalProducts}
+                  onClick={() => setPage(p => p + 1)}
+                  className="px-3 py-1 text-xs font-bold transition-colors hover:bg-slate-100 disabled:opacity-30">
+                  Próxima
+                </button>
+             </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -403,12 +441,12 @@ export default function Products() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr><td colSpan={3 + suppliers.length} className="p-8 text-center text-slate-500">Carregando...</td></tr>
-              ) : filteredProducts.length === 0 ? (
+              ) : products.length === 0 ? (
                 <tr><td colSpan={3 + suppliers.length} className="p-8 text-center text-slate-500">
                   {searchFilter ? "Nenhum resultado." : "Nenhum produto cadastrado."}
                 </td></tr>
               ) : (
-                visibleProducts.map((product) => {
+                products.map((product) => {
                   const best = bestPriceMap[product.id];
                   const bestSupId = best ? best.supplierId : null;
                   return (
@@ -489,15 +527,22 @@ export default function Products() {
           </table>
         </div>
 
-        {/* Carregar mais */}
-        {visibleCount < filteredProducts.length && (
-          <div className="p-3 text-center border-t border-slate-100">
-            <button onClick={() => setVisibleCount(v => v + PAGE_SIZE)}
-              className="text-sm text-primary font-semibold hover:underline">
-              Carregar mais ({filteredProducts.length - visibleCount} restantes)
-            </button>
-          </div>
-        )}
+        {/* Paginação inferior */}
+        <div className="p-4 bg-slate-50/30 border-t border-slate-100 flex items-center justify-center gap-4">
+           <button 
+             disabled={page === 0}
+             onClick={() => { setPage(p => Math.max(0, p - 1)); window.scrollTo(0,0); }}
+             className="px-6 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 disabled:opacity-30">
+             Anterior
+           </button>
+           <span className="text-sm text-slate-400 font-medium">Página {page + 1} de {Math.ceil(totalProducts / pageSize)}</span>
+           <button 
+             disabled={(page + 1) * pageSize >= totalProducts}
+             onClick={() => { setPage(p => p + 1); window.scrollTo(0,0); }}
+             className="px-6 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 disabled:opacity-30">
+             Próxima
+           </button>
+        </div>
       </div>
 
       {/* Barra flutuante de seleção */}
