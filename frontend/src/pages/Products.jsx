@@ -473,7 +473,7 @@ export default function Products() {
                             <Package className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-semibold text-slate-800 text-sm truncate max-w-[200px]">{product.name}</p>
+                            <p className="font-semibold text-slate-800 text-sm truncate max-w-[200px]" title={product.name}>{product.name}</p>
                             <div className="flex items-center gap-2 mt-0.5">
                               {product.category && <p className="text-[10px] text-slate-400 truncate">{product.category}</p>}
                               {product.last_purchase_price && (

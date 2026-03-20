@@ -393,7 +393,7 @@ export default function OrderBuilder() {
               ) : (
                 filteredProducts.map(p => (
                   <li key={p.id} onMouseDown={() => addToCart(p)} className="p-3 hover:bg-slate-50 cursor-pointer flex justify-between items-center group">
-                    <span className="text-sm font-medium text-slate-700 truncate">{p.name}</span>
+                    <span className="text-sm font-medium text-slate-700 truncate" title={p.name}>{p.name}</span>
                     <Plus className="w-4 h-4 text-slate-300 group-hover:text-primary" />
                   </li>
                 ))
@@ -442,7 +442,7 @@ export default function OrderBuilder() {
                         className={`p-4 border-b flex justify-between items-center cursor-pointer hover:opacity-80 transition-opacity ${supplier==="Sem Preço Tabela"?'bg-red-50 border-red-100 text-red-800':'bg-slate-50/50 border-slate-100 text-slate-800'}`}>
                         <h3 className="font-bold text-sm flex items-center gap-2 truncate whitespace-nowrap">
                           {supplier==="Sem Preço Tabela"? <AlertTriangle className="w-4 h-4 shrink-0" /> : <ShoppingCart className="w-4 h-4 text-primary shrink-0" />}
-                          <span className="truncate">{supplier}</span>
+                          <span className="truncate" title={supplier}>{supplier}</span>
                         </h3>
                         {supplier !== "Sem Preço Tabela" && (
                            <span className="font-bold text-primary shrink-0 ml-2">
