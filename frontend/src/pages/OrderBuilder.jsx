@@ -50,7 +50,8 @@ export default function OrderBuilder() {
   async function fetchBaseProducts() {
     try {
       setLoading(true);
-      const data = await fetchAllRows('products', '*', 'name');
+      const { data, error } = await supabase.from('products').select('*').order('name').limit(100);
+      if (error) throw error;
       setProducts(data || []);
 
       // Mesclar itens vindos da tela de Produtos (sem duplicar)

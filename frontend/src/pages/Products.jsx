@@ -289,11 +289,19 @@ export default function Products() {
     });
   }
 
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   function toggleSelectAll() {
-    if (selectedIds.size === filteredProducts.length) {
+    if (selectedIds.size === products.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredProducts.map(p => p.id)));
+      setSelectedIds(new Set(products.map(p => p.id)));
     }
   }
 
