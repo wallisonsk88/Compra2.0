@@ -23,77 +23,78 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      const [prodRes, supRes, quoteRes, quotesViewRes] = await Promise.all([
-        supabase.from('products').select('*', { count: 'exact', head: true }),
-        supabase.from('suppliers').select('*', { count: 'exact', head: true }),
-        supabase.from('quotations').select('*', { count: 'exact', head: true }),
-        supabase.from('quotations_view').select('*').order('created_at', { ascending: false }).limit(500)
+      // 1. Métricas rápidas primeiro (Apenas contagem)
+      const [prodRes, supRes, quoteRes] = await Promise.all([
+        supabase.from('products').select('id', { count: 'exact', head: true }),
+        supabase.from('suppliers').select('id', { count: 'exact', head: true }),
+        supabase.from('quotations').select('id', { count: 'exact', head: true })
       ]);
-      const quotes = quotesViewRes.data;
 
-      // Orders em separado para não derrubar tudo se a tabela não existir
-      let fetchedOrders = [];
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('orders').select('*').order('created_at', { ascending: false }).limit(30);
-      if (ordersError) {
-        console.warn('Erro ao buscar orders:', ordersError.message, ordersError.code);
-      } else {
-        fetchedOrders = ordersData || [];
-      }
-      console.log('Orders carregadas:', fetchedOrders.length);
+      setData(prev => ({
+        ...prev,
+        total_products: prodRes.count || 0,
+        total_suppliers: supRes.count || 0,
+        total_quotes: quoteRes.count || 0
+      }));
+      setLoading(false); // Já libera a tela para o usuário ver os cards!
 
-      const prodCount = prodRes.count;
-      const supCount = supRes.count;
-      const quoteCount = quoteRes.count;
-
-      let totalSavings = 0;
-      const recentDealsMap = {};
-
-      if (quotes) {
-        const productQuotes = {};
-        quotes.forEach(q => {
-          if (!productQuotes[q.product_id]) productQuotes[q.product_id] = [];
-          productQuotes[q.product_id].push(q);
-        });
-
-        Object.values(productQuotes).forEach(prodQuotesList => {
-          const bestQuote = prodQuotesList.reduce((min, q) => (q.price < min.price ? q : min), prodQuotesList[0]);
-          const otherQuotes = prodQuotesList.filter(q => q.id !== bestQuote.id);
-
-          let savings = 0;
-          if (otherQuotes.length > 0) {
-            const avgOthers = otherQuotes.reduce((acc, curr) => acc + curr.price, 0) / otherQuotes.length;
-            savings = avgOthers - bestQuote.price;
-            if (savings < 0) savings = 0;
-          }
-
-          if (savings > 0) {
-            recentDealsMap[bestQuote.product_id] = {
-              product_name: bestQuote.product_name,
-              best_supplier: bestQuote.supplier_name,
-              best_price: bestQuote.price,
-              savings: savings
-            };
-            totalSavings += savings;
-          }
-        });
-      }
-
-      setData({
-        total_products: prodCount || 0,
-        total_suppliers: supCount || 0,
-        total_quotes: quoteCount || 0,
-        total_savings: totalSavings,
-        recent_deals: Object.values(recentDealsMap).sort((a, b) => b.savings - a.savings).slice(0, 5)
-      });
-
-      setOrders(fetchedOrders);
+      // 2. Busca dados mais pesados em segundo plano
+      fetchRemainingData();
 
     } catch (error) {
       console.error(error);
-    } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchRemainingData() {
+    try {
+       const [quotesViewRes, ordersRes] = await Promise.all([
+         supabase.from('quotations_view').select('*').order('created_at', { ascending: false }).limit(300),
+         supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(20)
+       ]);
+
+       const quotes = quotesViewRes.data || [];
+       const fetchedOrders = ordersRes.data || [];
+
+       let totalSavings = 0;
+       const recentDealsMap = {};
+
+       if (quotes.length > 0) {
+         const productQuotes = {};
+         quotes.forEach(q => {
+           if (!productQuotes[q.product_id]) productQuotes[q.product_id] = [];
+           productQuotes[q.product_id].push(q);
+         });
+
+         Object.values(productQuotes).forEach(prodQuotesList => {
+           const bestQuote = prodQuotesList.reduce((min, q) => (q.price < min.price ? q : min), prodQuotesList[0]);
+           const otherQuotes = prodQuotesList.filter(q => q.id !== bestQuote.id);
+           let savings = 0;
+           if (otherQuotes.length > 0) {
+             const avgOthers = otherQuotes.reduce((acc, curr) => acc + curr.price, 0) / otherQuotes.length;
+             savings = avgOthers - bestQuote.price;
+             if (savings < 0) savings = 0;
+           }
+           if (savings > 0) {
+             recentDealsMap[bestQuote.product_id] = {
+               product_name: bestQuote.product_name,
+               best_supplier: bestQuote.supplier_name,
+               best_price: bestQuote.price,
+               savings: savings
+             };
+             totalSavings += savings;
+           }
+         });
+       }
+
+       setData(prev => ({
+         ...prev,
+         total_savings: totalSavings,
+         recent_deals: Object.values(recentDealsMap).sort((a, b) => b.savings - a.savings).slice(0, 5)
+       }));
+       setOrders(fetchedOrders);
+    } catch(e) { console.warn("Lento ao carregar detalhes:", e); }
   }
 
   // Preparar dados do gráfico
