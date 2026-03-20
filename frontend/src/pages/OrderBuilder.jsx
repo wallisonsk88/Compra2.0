@@ -462,7 +462,7 @@ export default function OrderBuilder() {
                                   className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-1" title="Remover">
                                   <Trash2 className="w-3 h-3" />
                                 </button>
-                                <span className="font-medium truncate mr-2 flex-1">{item.product}</span>
+                                <span className="font-medium truncate mr-2 flex-1" title={item.product}>{item.product}</span>
                                 {supplier === "Sem Preço Tabela" ? (
                                   <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded">SEM COTAÇÃO</span>
                                 ) : (
