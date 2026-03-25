@@ -184,6 +184,28 @@ export default function Products() {
     } catch (error) { console.error(error); alert("Erro ao excluir produto."); }
   }
 
+  async function handleDeleteAll() {
+    if (!window.confirm("CUIDADO: Você está prestes a apagar TODOS os produtos cadastrados. Esta ação não pode ser desfeita. Tem certeza?")) return;
+    if (!window.confirm("Tem ABSOLUTA certeza? Todo o seu cadastro de produtos será perdido permanentemente!")) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase.from("products").delete().gt("id", 0);
+      if (error) throw error;
+      setProducts([]);
+      setTotalProducts(0);
+      setPage(0);
+      setSelectedIds(new Set());
+      setQuotations([]);
+      alert("Todos os produtos foram apagados com sucesso.");
+      fetchMainData();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao excluir todos os produtos: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // === IMPORTAÇÃO ===
   function handleFileSelect(e) {
     const file = e.target.files[0];
@@ -319,6 +341,11 @@ export default function Products() {
           <p className="text-slate-500 text-sm">Portfólio completo com preços de cada fornecedor. Clique no valor para editar.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={handleDeleteAll}
+            className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 flex items-center gap-2 rounded-xl border border-red-200 transition-colors font-medium text-sm"
+            title="Apagar todos os produtos de uma vez">
+            <Trash2 className="w-4 h-4" /> Apagar Todos
+          </button>
           <button onClick={() => { setShowImport(!showImport); setShowForm(false); setImportPreview([]); }}
             className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 flex items-center gap-2 rounded-xl transition-colors font-medium text-sm">
             <Upload className="w-4 h-4" /> Importar
