@@ -251,104 +251,60 @@ export default function OrderBuilder() {
     setTimeout(() => { w.print(); }, 400);
   }
 
-  async function finishOrder() {
-    if (!window.confirm('Concluir este pedido e imprimir a lista de compras?')) return;
+  async function finishSupplierOrder(supplierName, data) {
+    if (!window.confirm(`Tem certeza que deseja concluir o pedido do fornecedor ${supplierName}?\nOs itens entrarão no histórico e sairão do carrinho.`)) return;
 
-    // Salvar no histórico
     try {
+      const supplierCost = getSupplierTotal(supplierName, data);
+      let supplierSavings = 0;
+      (data.items || []).forEach(item => {
+         supplierSavings += (item.savings || 0) * getQty(supplierName, item.product);
+      });
+
       const { error } = await supabase.from('orders').insert([{
-        total_cost: orderPlan.summary.total_cost,
-        total_savings: orderPlan.summary.total_savings,
-        items_count: shoppingList.length,
-        details: orderPlan.orders
+        total_cost: supplierCost,
+        total_savings: supplierSavings,
+        items_count: data.items.length,
+        details: { [supplierName]: data }
       }]);
       if (error) console.error('Erro ao salvar pedido:', error);
 
-      // Atualizar o histórico do produto individual
-      const productUpdates = [];
-      const nowString = new Date().toISOString();
-      Object.entries(orderPlan.orders).forEach(([supplierName, data]) => {
-        if (supplierName === 'Sem Preço Tabela') return;
+      if (supplierName !== 'Sem Preço Tabela') {
+        const productUpdates = [];
+        const nowString = new Date().toISOString();
         (data.items || []).forEach(item => {
-          if (item.productId && item.price > 0) {
+          if ((item.productId || item.id) && item.price > 0) {
             productUpdates.push(
               supabase.from('products').update({
                 last_purchase_price: item.price,
                 last_supplier: supplierName,
                 last_purchase_date: nowString
-              }).eq('id', item.productId)
+              }).eq('id', item.productId || item.id)
             );
           }
         });
-      });
-      if (productUpdates.length > 0) {
-        await Promise.all(productUpdates);
+        if (productUpdates.length > 0) {
+          await Promise.all(productUpdates);
+        }
       }
     } catch(e) { console.error(e); }
 
-    // Gerar HTML de impressão
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-    let supplierBlocks = '';
+    printSupplierOrder(supplierName, data);
 
-    Object.entries(orderPlan.orders).forEach(([supplier, data]) => {
-      const isSem = supplier === 'Sem Preço Tabela';
-      let rows = '';
-      (data.items || []).forEach(item => {
-        rows += `<tr>
-          <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${item.product}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${item.price > 0 ? 'R$ '+Number(item.price).toFixed(2) : 'Sem cotação'}</td>
-        </tr>`;
-      });
-      supplierBlocks += `
-        <div style="margin-bottom:20px;border:1px solid ${isSem?'#fecaca':'#e2e8f0'};border-radius:8px;overflow:hidden">
-          <div style="background:${isSem?'#fef2f2':'#f8fafc'};padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid ${isSem?'#fecaca':'#e2e8f0'}">
-            <strong style="color:${isSem?'#dc2626':'#0ea5e9'};font-size:14px">${supplier}</strong>
-            ${!isSem && data.supplier_total > 0 ? '<span style="font-weight:700;font-size:14px">R$ '+Number(data.supplier_total).toFixed(2)+'</span>' : ''}
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px">${rows}</table>
-        </div>`;
-    });
-
-    const printHTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido MegaFarma</title>
-      <style>
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:30px;color:#1e293b}
-        @media print{body{padding:15px}}
-      </style></head><body>
-      <div style="text-align:center;margin-bottom:24px;border-bottom:2px solid #0ea5e9;padding-bottom:16px">
-        <h1 style="margin:0;font-size:24px;color:#0ea5e9">🛒 MegaFarma</h1>
-        <p style="margin:4px 0 0;color:#64748b;font-size:13px">Lista de Compras — ${dateStr}</p>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:20px;gap:16px">
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;flex:1;text-align:center">
-          <div style="font-size:11px;color:#16a34a;font-weight:600">CUSTO TOTAL</div>
-          <div style="font-size:20px;font-weight:800;color:#15803d">R$ ${orderPlan.summary.total_cost.toFixed(2)}</div>
-        </div>
-        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px 16px;flex:1;text-align:center">
-          <div style="font-size:11px;color:#0284c7;font-weight:600">ECONOMIA</div>
-          <div style="font-size:20px;font-weight:800;color:#0369a1">R$ ${orderPlan.summary.total_savings.toFixed(2)}</div>
-        </div>
-        <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:12px 16px;flex:1;text-align:center">
-          <div style="font-size:11px;color:#7c3aed;font-weight:600">ITENS</div>
-          <div style="font-size:20px;font-weight:800;color:#6d28d9">${shoppingList.length}</div>
-        </div>
-      </div>
-      ${supplierBlocks}
-      <div style="margin-top:24px;text-align:center;color:#94a3b8;font-size:11px;border-top:1px solid #e2e8f0;padding-top:12px">
-        MegaFarma — Sistema de Compras Inteligentes
-      </div>
-    </body></html>`;
-
-    const printWin = window.open('', '_blank', 'width=800,height=600');
-    printWin.document.write(printHTML);
-    printWin.document.close();
-    printWin.focus();
-    setTimeout(() => { printWin.print(); }, 400);
-
-    const ids = shoppingList.map(i => i.id);
-    setShoppingList([]);
+    const idsToRemove = data.items.map(i => i.productId || i.id);
+    setShoppingList(prev => prev.filter(p => !idsToRemove.includes(p.id)));
     try {
-      await supabase.from('products').update({ in_cart: false }).in('id', ids);
+      await supabase.from('products').update({ in_cart: false }).in('id', idsToRemove);
+    } catch(e) {}
+  }
+
+  async function deleteSupplierOrder(supplierName, data) {
+    if (!window.confirm(`Tem certeza que deseja remover os ${data.items.length} itens do fornecedor ${supplierName} do carrinho?`)) return;
+    
+    const idsToRemove = data.items.map(i => i.productId || i.id);
+    setShoppingList(prev => prev.filter(p => !idsToRemove.includes(p.id)));
+    try {
+      await supabase.from('products').update({ in_cart: false }).in('id', idsToRemove);
     } catch(e) {}
   }
 
@@ -476,47 +432,32 @@ export default function OrderBuilder() {
                         </ul>
                       </div>
 
-                      <div className="p-3 border-t border-slate-100 bg-slate-50 flex gap-2">
-                        <button onClick={() => setQtyModalSupplier(supplier)}
-                          className="flex-1 flex items-center justify-center gap-1 bg-blue-100 hover:bg-blue-200 text-blue-700 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
-                          Qtd
-                        </button>
-                        <button onClick={() => printSupplierOrder(supplier, data)}
-                          className="flex-1 flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
-                          <Printer className="w-3.5 h-3.5" /> Imprimir
-                        </button>
-                        {supplier !== "Sem Preço Tabela" && (
-                          <button className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
-                            <MessageCircle className="w-3.5 h-3.5" /> Pedido
+                      <div className="p-3 border-t border-slate-100 bg-slate-50 flex flex-col gap-2">
+                        <div className="flex w-full gap-2">
+                          <button onClick={() => setQtyModalSupplier(supplier)}
+                            className="flex-1 flex items-center justify-center gap-1 bg-blue-100 hover:bg-blue-200 text-blue-800 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase transition-colors">
+                            Qtd
                           </button>
-                        )}
+                          <button onClick={() => printSupplierOrder(supplier, data)}
+                            className="flex-1 flex items-center justify-center gap-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase transition-colors">
+                            <Printer className="w-3 h-3" /> Imprimir
+                          </button>
+                          <button onClick={() => deleteSupplierOrder(supplier, data)}
+                            className="flex-1 flex items-center justify-center gap-1.5 bg-red-100 hover:bg-red-200 text-red-600 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase transition-colors">
+                            <Trash2 className="w-3 h-3" /> Excluir
+                          </button>
+                        </div>
+                        <button onClick={() => finishSupplierOrder(supplier, data)}
+                          className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg text-xs font-bold uppercase transition-colors shadow-sm">
+                          <CheckCircle className="w-4 h-4" /> Concluir Pedido {supplier !== "Sem Preço Tabela" ? "Deste Fornecedor" : ""}
+                        </button>
                       </div>
                     </div>
                   )})}
                 </div>
               )}
 
-              {/* Botão Concluir Pedido */}
-              {shoppingList.length > 0 && !computing && (
-                <div className="flex flex-wrap justify-center gap-3 pt-2">
-                  <button onClick={async () => {
-                    if (!window.confirm('Tem certeza que deseja excluir este pedido? A lista será apagada.')) return;
-                    const ids = shoppingList.map(i => i.id);
-                    setShoppingList([]);
-                    setQuantities({});
-                    try {
-                      await supabase.from('products').update({ in_cart: false }).in('id', ids);
-                    } catch(e) {}
-                  }}
-                    className="bg-red-500 hover:bg-red-600 text-white font-bold px-6 py-3 rounded-xl flex items-center gap-2 transition-all active:scale-95 shadow-lg">
-                    <Trash2 className="w-5 h-5" /> Excluir Pedido
-                  </button>
-                  <button onClick={finishOrder}
-                    className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-3 rounded-xl flex items-center gap-2 transition-all active:scale-95 shadow-lg">
-                    <CheckCircle className="w-5 h-5" /> Concluir Pedido
-                  </button>
-                </div>
-              )}
+
           </div>
 
       {/* Modal de Quantidades */}
