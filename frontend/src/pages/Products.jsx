@@ -55,7 +55,7 @@ export default function Products() {
       }
       
       const { data: prodData, count, error: prodErr } = await query
-        .order("name")
+        .order("id", { ascending: false })
         .range(page * pageSize, (page + 1) * pageSize - 1);
         
       if (prodErr) throw prodErr;
@@ -169,7 +169,7 @@ export default function Products() {
       } else {
         const { data, error } = await supabase.from("products").insert([payload]).select();
         if (error) { alert("Erro ao adicionar produto."); throw error; }
-        setProducts([...products, data[0]]);
+        setProducts([data[0], ...products]);
       }
       handleCancel();
     } catch (error) { console.error(error); }
