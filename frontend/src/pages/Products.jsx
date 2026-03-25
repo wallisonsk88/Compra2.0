@@ -78,6 +78,12 @@ export default function Products() {
         setQuotations([]);
       }
 
+      // 4. Fetch selected cart items to populate selectedIds globally
+      const { data: cartData } = await supabase.from("products").select("id").eq("in_cart", true);
+      if (cartData) {
+        setSelectedIds(new Set(cartData.map(c => c.id)));
+      }
+
     } catch (error) {
       console.error("Erro ao buscar dados:", error.message);
     } finally {
@@ -303,33 +309,51 @@ export default function Products() {
   }, [quotations]);
 
   // === Seleção / Checkbox ===
-  function toggleSelect(id) {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
+  async function toggleSelect(product) {
+    const id = product.id;
+    const isCurrentlySelected = selectedIds.has(id);
+    const nextState = !isCurrentlySelected;
 
-  function toggleSelect(id) {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    if (selectedIds.size === products.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(products.map(p => p.id)));
+    // Proteção contra compra repetida (se estiver adicionando)
+    if (nextState && product.last_purchase_date) {
+      const days = Math.floor((new Date() - new Date(product.last_purchase_date)) / (1000 * 60 * 60 * 24));
+      if (days < 30) {
+        const msg = `⚠️ COMPRA RECENTE DETECTADA!\n\nEste produto foi pedido há apenas ${days} dias (em ${new Date(product.last_purchase_date).toLocaleDateString('pt-BR')} no fonecedor ${product.last_supplier}).\n\nTem certeza que deseja adicionar ao carrinho novamente?`;
+        if (!window.confirm(msg)) return;
+      }
     }
+
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (nextState) next.add(id); else next.delete(id);
+      return next;
+    });
+
+    try {
+      await supabase.from("products").update({ in_cart: nextState }).eq("id", id);
+    } catch(e) { console.error("Erro ao salvar selecao", e); }
+  }
+
+  async function toggleSelectAll() {
+    const allSelectedOnPage = products.length > 0 && products.every(p => selectedIds.has(p.id));
+    const nextState = !allSelectedOnPage;
+    const pageIds = products.map(p => p.id);
+
+    // Se estivermos selecionando todos na página, não emitiremos alert individual para não travar o fluxo. 
+    // Fica ao critério do usuário.
+
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      pageIds.forEach(id => nextState ? next.add(id) : next.delete(id));
+      return next;
+    });
+
+    try {
+      await supabase.from("products").update({ in_cart: nextState }).in("id", pageIds);
+    } catch(e) { console.error("Erro ao selecionar todos", e); }
   }
 
   function sendToOrder() {
-    const selected = products.filter(p => selectedIds.has(p.id));
-    localStorage.setItem('smartpharma_cart', JSON.stringify(selected));
     navigate('/order-builder');
   }
 
@@ -462,11 +486,8 @@ export default function Products() {
             <thead>
               <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 text-xs uppercase font-semibold">
                 <th className="px-2 py-3 w-10 text-center">
-                  <input type="checkbox" checked={products.length > 0 && selectedIds.size === products.length}
-                    onChange={() => {
-                      if (selectedIds.size === products.length) setSelectedIds(new Set());
-                      else setSelectedIds(new Set(products.map(p => p.id)));
-                    }} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/50 cursor-pointer" />
+                  <input type="checkbox" checked={products.length > 0 && products.every(p => selectedIds.has(p.id))}
+                    onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/50 cursor-pointer" />
                 </th>
                 <th className="px-4 py-3 sticky left-0 bg-slate-50 z-10">Produto</th>
                 {suppliers.map(s => (
@@ -491,7 +512,7 @@ export default function Products() {
                   return (
                     <tr key={product.id} className={`transition-colors ${selectedIds.has(product.id) ? 'bg-primary/5' : 'hover:bg-slate-50/50'}`}>
                       <td className="px-2 py-3 text-center">
-                        <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product.id)}
+                        <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product)}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/50 cursor-pointer" />
                       </td>
                       <td className="px-4 py-3 sticky left-0 bg-white">
@@ -504,10 +525,16 @@ export default function Products() {
                             <div className="flex items-center gap-2 mt-0.5">
                               {product.category && <p className="text-[10px] text-slate-400 truncate">{product.category}</p>}
                               {product.last_purchase_price && (
-                                <p className="text-[10px] text-amber-600 truncate bg-amber-50 px-1.5 rounded font-medium" 
-                                   title={`Última compra em ${product.last_purchase_date ? new Date(product.last_purchase_date).toLocaleDateString('pt-BR') : 'data desconhecida'}`}>
-                                  Último pedido: {product.last_supplier || '?'} (R$ {Number(product.last_purchase_price).toFixed(2)})
-                                </p>
+                                (() => {
+                                  const days = Math.floor((new Date() - new Date(product.last_purchase_date)) / (1000 * 60 * 60 * 24));
+                                  const isRecent = days < 30;
+                                  return (
+                                    <p className={`text-[10px] truncate px-1.5 rounded font-medium ${isRecent ? 'bg-red-100 text-red-700 animate-pulse border border-red-200' : 'text-amber-600 bg-amber-50'}`} 
+                                       title={`Última compra em ${product.last_purchase_date ? new Date(product.last_purchase_date).toLocaleDateString('pt-BR') : 'data desconhecida'} (${days} dias atrás)`}>
+                                      {isRecent ? `⚠️ COMPRADO HÁ ${days} DIAS` : `Último: ${product.last_supplier || '?'}`} (R$ {Number(product.last_purchase_price).toFixed(2)})
+                                    </p>
+                                  );
+                                })()
                               )}
                             </div>
                           </div>
@@ -591,7 +618,11 @@ export default function Products() {
             <strong className="text-emerald-400">{selectedIds.size}</strong> selecionado{selectedIds.size > 1 ? 's' : ''}
           </span>
           <div className="flex items-center gap-2">
-            <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 hover:text-white text-xs">Limpar</button>
+            <button onClick={async () => { 
+                const idsArray = Array.from(selectedIds);
+                setSelectedIds(new Set()); 
+                await supabase.from("products").update({ in_cart: false }).in("id", idsArray);
+            }} className="text-slate-400 hover:text-white text-xs">Limpar</button>
             <button onClick={sendToOrder}
               className="bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-xl flex items-center gap-2 text-sm transition-all active:scale-95 shadow-lg shadow-emerald-500/30">
               <ShoppingCart className="w-4 h-4" /> Comprar

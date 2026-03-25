@@ -8,13 +8,8 @@ export default function OrderBuilder() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Carrinho persistido no localStorage
-  const [shoppingList, setShoppingList] = useState(() => {
-    try {
-      const saved = localStorage.getItem('smartpharma_order_list');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  // Carrinho persistido no banco
+  const [shoppingList, setShoppingList] = useState([]);
   
   // Resultados da inteligência de pedidos
   const [orderPlan, setOrderPlan] = useState({ summary: { total_cost: 0, total_savings: 0 }, orders: {} });
@@ -38,8 +33,6 @@ export default function OrderBuilder() {
   }, []);
 
   useEffect(() => {
-    // Persistir sempre que mudar
-    localStorage.setItem('smartpharma_order_list', JSON.stringify(shoppingList));
     if (shoppingList.length > 0) {
        generateOrderPlan();
     } else {
@@ -54,20 +47,10 @@ export default function OrderBuilder() {
       if (error) throw error;
       setProducts(data || []);
 
-      // Mesclar itens vindos da tela de Produtos (sem duplicar)
-      const savedCart = localStorage.getItem('smartpharma_cart');
-      if (savedCart) {
-        try {
-          const cartItems = JSON.parse(savedCart);
-          if (Array.isArray(cartItems) && cartItems.length > 0) {
-            setShoppingList(prev => {
-              const existingIds = new Set(prev.map(p => p.id));
-              const newItems = cartItems.filter(p => !existingIds.has(p.id));
-              return [...prev, ...newItems];
-            });
-          }
-        } catch(e) {}
-        localStorage.removeItem('smartpharma_cart');
+      // Carregar itens que estão no carrinho global (in_cart = true)
+      const { data: cartData, error: cartErr } = await supabase.from('products').select('*').eq('in_cart', true);
+      if (!cartErr && cartData) {
+        setShoppingList(cartData);
       }
     } catch (e) {
       console.error(e);
@@ -168,14 +151,20 @@ export default function OrderBuilder() {
     (p.ean && p.ean.includes(searchQuery))
   )).slice(0, 50);
 
-  function addToCart(p) {
+  async function addToCart(p) {
     setShoppingList([...shoppingList, p]);
     setSearchQuery("");
     setShowDropdown(false);
+    try {
+      await supabase.from('products').update({ in_cart: true }).eq('id', p.id);
+    } catch(e) {}
   }
 
-  function removeFromCart(id) {
+  async function removeFromCart(id) {
     setShoppingList(shoppingList.filter(i => i.id !== id));
+    try {
+      await supabase.from('products').update({ in_cart: false }).eq('id', id);
+    } catch(e) {}
   }
 
   function getQty(supplier, product) {
@@ -356,8 +345,11 @@ export default function OrderBuilder() {
     printWin.focus();
     setTimeout(() => { printWin.print(); }, 400);
 
+    const ids = shoppingList.map(i => i.id);
     setShoppingList([]);
-    localStorage.removeItem('smartpharma_order_list');
+    try {
+      await supabase.from('products').update({ in_cart: false }).in('id', ids);
+    } catch(e) {}
   }
 
   if (loading) return <div className="p-8 text-center text-slate-500">Iniciando motor de recomendações...</div>;
@@ -507,11 +499,14 @@ export default function OrderBuilder() {
               {/* Botão Concluir Pedido */}
               {shoppingList.length > 0 && !computing && (
                 <div className="flex flex-wrap justify-center gap-3 pt-2">
-                  <button onClick={() => {
+                  <button onClick={async () => {
                     if (!window.confirm('Tem certeza que deseja excluir este pedido? A lista será apagada.')) return;
+                    const ids = shoppingList.map(i => i.id);
                     setShoppingList([]);
                     setQuantities({});
-                    localStorage.removeItem('smartpharma_order_list');
+                    try {
+                      await supabase.from('products').update({ in_cart: false }).in('id', ids);
+                    } catch(e) {}
                   }}
                     className="bg-red-500 hover:bg-red-600 text-white font-bold px-6 py-3 rounded-xl flex items-center gap-2 transition-all active:scale-95 shadow-lg">
                     <Trash2 className="w-5 h-5" /> Excluir Pedido
